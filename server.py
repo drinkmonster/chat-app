@@ -15,11 +15,18 @@ def broadcast():
             with message_lock:
                 timestamp = datetime.datetime.now().strftime('[%Y-%m-%d %H:%M:%S]')
                 for client in clients:
-                    client.send(f'{timestamp} {client_name}: {message}'.encode())
+                    print(f'{timestamp} {client_name}: {message}')
+                    try:
+                        client.send(f'{timestamp} {client_name}: {message}'.encode())
+                    except socket.error as e:
+                        print("Error sending message: ", e)
+                        clients.pop(client)
+                        message_queue.put(('Server', f"{client_name} has disconnected!"))
                 with open("messages.txt", "a") as log_file:
-                    log_file.write(f"{timestamp} {client_name}: {message}\n")
-
-
+                    try:
+                        log_file.write(f"{timestamp} {client_name}: {message}\n")
+                    except Exception as e:
+                        print("Error writing to log file: ", e)
 
 def handle_client(client_socket):
     while True:
@@ -28,19 +35,15 @@ def handle_client(client_socket):
             if not message:
                 break
             message_queue.put((client_name, message))
-        except ConnectionResetError:
-            clients.pop(client_socket)
-            message_queue.put(('Server', f"{client_name} has disconnected!))
+        except ConnectionResetError as e:
+            print("Error receiving message: ", e)
+            message_queue.put(('Server', f"{client_name} has disconnected!"))
             break
 
 def handle_server():
     while True:
         message = input()
         message_queue.put(('Server', message))
-        message = client_socket.recv(1024).decode()
-        if not message:
-            break
-        message_queue.put((client_name, message))
 
 clients = {}
 message_queue = Queue()
@@ -58,8 +61,12 @@ while True:
     client_socket, client_address = server_socket.accept()
     client_name = random_name()
     print(f'{client_name} connected')
-    client_socket.send(f'Welcome, your name is {client_name}'.encode())
+    client_socket.send(f'Welcome, your name is {client_name}. Number of users online: {len(clients)}'.encode())
     message_queue.put(('Server', f"{client_name} has joined the room!"))
-    clients[client_socket] = client_name
-    threading.Thread(target=handle_client, args=(client_socket,)).start()
-    threading.Thread(target=broadcast).start()
+    try:
+        clients[client_socket] = client_name
+        threading.Thread(target=handle_client, args=(client_socket,)).start()
+        threading.Thread(target=broadcast).start()
+    except Exception as e:
+        print("Error adding client to list: ", e)
+        client_socket.close()
